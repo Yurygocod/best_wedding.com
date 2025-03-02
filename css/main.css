@@ -175,7 +175,7 @@ margin-top: 50px;
   -moz-background-size: cover;  /* Для Firefox */ 
   -o-background-size: cover; /* Для Opera 12 */
   background-size: cover; /* Стандарт для других браузеров, включая IE9+ */
-height: 700px;
+height: 800px;
 }
 
 .offer p1 {
