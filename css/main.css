@@ -203,6 +203,7 @@ height: 800px;
 	padding-bottom: 50px;
 	border-color: white;
 	background-position: center;
+	line-height: 2em;
   -webkit-background-size: cover; /* Для Chrome и Safari */
   -moz-background-size: cover;  /* Для Firefox */ 
   -o-background-size: cover; /* Для Opera 12 */
