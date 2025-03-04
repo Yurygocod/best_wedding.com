@@ -147,7 +147,7 @@ header a {
 	letter-spacing: 0.1em;
 	color: white;
  font-family: "Great Vibes", cursive;
-	line-height: 1em;
+	line-height: normal;
 }
 .date_name{
 text-align: center;
@@ -196,7 +196,7 @@ height: 800px;
 	text-align: center;
 	color: white;
 	height:500px;
-	font-family: "Sofia Sans Semi Condensed", serif;
+	font-family: "Roboto Serif", serif;
 	letter-spacing: 0.02em;
 	font-size: 25px;
 	padding-top: 50px;
@@ -285,7 +285,7 @@ text-align: center;
 .dress p {
 	font-size:21px;
 	color: black;
-	font-family: "Sofia Sans Semi Condensed", serif;
+	font-family: "Roboto Serif", serif;
 	line-height: 1em;
 }
 .dress p6 {
@@ -370,7 +370,7 @@ p6 {
 .surp p{
 	font-size: 21px;
 	color: black;
-	font-family: "Sofia Sans Semi Condensed", serif;
+	font-family: "Roboto Serif", serif;
 	line-height: 1;
 }
 .surp a{
