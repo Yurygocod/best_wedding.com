@@ -1,204 +1,358 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-	<meta charset="UTF-8">
-	<title>Юрий и Алина</title>
-	<!-- Responsive starts here -->
-	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-	<link href="https://fonts.googleapis.com/css2?family=Anton&family=Open+Sans&display=swap" rel="stylesheet">
-	<link rel="icon" href="img/favicon.png" type="image/x-icon">
-	<link rel="shortcut icon" href="img/favicon.png" type="image/x-icon"> 
-	<link rel="stylesheet" href="css/main.css">
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<link href="https://fonts.googleapis.com/css2?family=Gabriela&display=swap" rel="stylesheet">
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Gabriela&family=Monsieur+La+Doulaise&display=swap" rel="stylesheet">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Gabriela&family=Great+Vibes&family=Monsieur+La+Doulaise&display=swap" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Навигатор Ориентировщика</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+        }
+        /* Панель управления сверху */
+        #controls {
+            position: absolute;
+            top: 0; left: 0; width: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 10px;
+            z-index: 10;
+            font-size: 13px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        .row { display: flex; gap: 5px; width: 100%; }
+        button, label.btn {
+            flex: 1;
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 8px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        button:disabled { background: #4b5563; cursor: not-allowed; }
+        input[type="file"] { display: none; }
+        
+        /* Информационная панель */
+        #status {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 5px;
+            border-radius: 3px;
+            line-height: 1.4;
+        }
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Ballet:opsz@16..72&family=Gabriela&family=Great+Vibes&family=Monsieur+La+Doulaise&display=swap" rel="stylesheet">
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Ballet:opsz@16..72&family=Gabriela&family=Great+Vibes&family=Lavishly+Yours&family=Monsieur+La+Doulaise&display=swap" rel="stylesheet">
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Ballet:opsz@16..72&family=Gabriela&family=Great+Vibes&family=Lavishly+Yours&family=Monsieur+La+Doulaise&family=Sofia+Sans+Semi+Condensed:ital,wght@0,1..1000;1,1..1000&display=swap" rel="stylesheet">
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Ballet:opsz@16..72&family=Gabriela&family=Great+Vibes&family=Lavishly+Yours&family=Monsieur+La+Doulaise&family=Sofia+Sans+Semi+Condensed:ital,wght@0,1..1000;1,1..1000&family=Zen+Antique&display=swap" rel="stylesheet">
-
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Roboto+Serif:ital,opsz,wght@0,8..144,100..900;1,8..144,100..900&display=swap" rel="stylesheet">
+        /* Контейнер рабочей области (карты) */
+        #map-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: crosshair;
+        }
+        #map-img {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+        /* Слой для рисования трека */
+        #track-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            pointer-events: none; /* Пропускает клики на картинку */
+        }
+        /* Маркер игрока */
+        #user-marker {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #ef4444;
+            border: 3px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            z-index: 5;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        /* Стрелка направления внутри маркера */
+        #user-marker::after {
+            content: '';
+            position: absolute;
+            top: -12px; left: 4px;
+            width: 0; height: 0;
+            border-left: 3px solid transparent;
+            border-right: 3px solid transparent;
+            border-bottom: 10px solid #ef4444;
+        }
+    </style>
 </head>
 <body>
-	<header id="header" class="header">
-		<div class="container">
-			<div class="nav">
-				<!-- Simple audio playback -->
 
-		</div>
-		<div class="fon">
-			<div class="offer">
-				<ul class="date">
-					<div class="date_date">
-					<li>
-							<p>
-							25
-						</p>
-						<p>
-							07
-						</p>
-						<p>
-							25
-						</p>
-					</li>
-				</div>
-				<div class="date_save">
-					<li>
-						<p1>
-							SAVE THE DATE
-						</p1>
-				</ul>
-				</div>
-				<div class="date_name">
-				<p5>Юрий<br>
-				&
-				<br>Алина</p5>
-				</div>
-			</div>
-		</div>
-				<!-- Simple audio playback ---------------->
+    <div id="controls">
+        <div class="row">
+            <label class="btn" for="file-input">📸 Сфоткать карту</label>
+            <input type="file" id="file-input" accept="image/*">
+            <button id="btn-north">🧭 Задать Север</button>
+        </div>
+        <div class="row">
+            <button id="btn-scale" disabled>📏 Задать масштаб (100м)</button>
+            <button id="btn-start" disabled>🚩 Я тут (Старт)</button>
+        </div>
+        <div id="status">Шаг 1: Загрузите фото вашей карты.</div>
+    </div>
 
+    <div id="map-container">
+        <img id="map-img" src="" alt="" style="display: none;">
+        <canvas id="track-canvas"></canvas>
+        <div id="user-marker"></div>
+    </div>
 
-				<!-- Simple audio playback ---------------->
-				
-				<!--<button class="menu-open">
-					<img src="img/play.png" alt="">
-				</button>
--->
-				<!--<div>
-					<figure>
-						<figcaption>Listen to the T-Rex:</figcaption>
-						<audio controls src="mp/muz.mp3"></audio>
-						<a href="mp/muz.mp3"> Download audio </a>
-					</figure>
-				</div>
-					-->
-		</div>
+<script>
+    // Основные переменные состояния
+    let mapImage = document.getElementById('map-img');
+    let canvas = document.getElementById('track-canvas');
+    let ctx = canvas.getContext('2d');
+    let marker = document.getElementById('user-marker');
+    let statusText = document.getElementById('status');
 
-	</header>
-	<section id="about" class="about">
-		<div class="container">
-			<div class="text_invitation">
-				<p1>Дорогие друзья!<br> Скоро наступит важный день <br> в нашей жизни - мы станем семьей!</p1>
-				<div class="about_date">
-						<p>25.07.25</p>
-				</div>
-				<p1>C радостью приглашаем вас<br> на наше свадебное торжество! <br>Юрий и Алина</p1>
-			</div>
+    let appState = "INIT"; // Режимы: INIT, WAIT_NORTH, WAIT_SCALE, WAIT_START, READY
+    
+    // Переменные калибровки
+    let northAzimuth = 0;      // Физический азимут севера карты
+    let scalePixelsPerMeter = 0; // Коэффициент масштаба
+    let scaleFirstPoint = null;  // Первая точка для замера масштаба
+    
+    let startGPS = null;       // {lat, lon} точки старта
+    let startPixels = null;    // {x, y} точки старта на картинке
+    let currentPixels = {x: 0, y: 0};
+    
+    let trackLog = [];         // Массив пройденных пиксельных точек [{x, y}]
+    let totalDistance = 0;     // В метрах
+    let lastGPS = null;
 
-			<div class="rasp">
-				<p6>Тайминг</p6>
-			<div class="zaks"><p>- 14.20 -</p><a href="https://yandex.ru/maps/18/petrozavodsk/house/ulitsa_yeremeyeva_1/Z00YdQBkSkAPQFhrfXt4dXRhbA==/?ll=34.375918%2C61.794379&z=16.79"><div class="icon_surp_one">
-							<img src="img/rosp.png" alt="" class="icon_surp1">
-						</div></a><br>
-					<p1>Регистрация</p1></div>
-					<div class="furhet"><p>- 15.30 -</p><a href="https://yandex.ru/maps/18/petrozavodsk/house/lososinskoye_shosse_17/Z00YdQRlTkwEQFhrfXt2c3VjYQ==/?ll=34.331308%2C61.772189&z=15"> <div class="icon_surp_one">
-							<img src="img/furshet.png" alt="" class="icon_surp1">
-						</div></a><br><p1>Фуршет</p1></div>
-					<div class="Banket"><p>- 16.30 -</p><a href="https://yandex.ru/maps/18/petrozavodsk/house/lososinskoye_shosse_17/Z00YdQRlTkwEQFhrfXt2c3VjYQ==/?ll=34.331308%2C61.772189&z=15"> <div class="icon_surp_one">
-							<img src="img/banket.png" alt="" class="icon_surp1">
-						</div></a><br><p1>Банкет</p1></div>
-				</div>
-							<div class="dress">
-								<p6> Дресскод</p6>
-								<p>Нам будет приятно если при выборе нарядов вы будете придерживаться цветовой гаммы мероприятия пастельные оттенки, натуральные ткани, рубашки без принтов.<br>(воздержаться от черного, красного, оранжевого, неоновых цветов, пёстрых принтов, анималистичного принта и крупного горошка)</p>
-							</div>
-							<div class="gamm">
-								<div class="circle_c1"></div>
-								<div class="circle_c2"></div>
-								<div class="circle_c3"></div>
-								<div class="circle_c4"></div>
-								<div class="circle_c5"></div>
-								<div class="circle_c6"></div>
-								<div class="circle_c7"></div>			<div class="circle_c8"></div>	
-								<div class="circle_c9"></div>	
-								<div class="circle_c10"></div>	
-							</div>
-<!--			Нам будет приятно если при выборе нарядов вы будете придерживаться цветовой гаммы мероприятния (пастельные оттенки, натуральные ткани, рубашки без принтов, воздеражться от черного, белого, фуксии, анималистичного принта и крупного горошка)
-<div class="description">
-				<div class="desc-left">
-					<h1>Тайминг</h1>
-					<div class="lima">
-<div class="col1">колонка 1</div>
-<div class="col2">колонка 2</div>
-</div>
-               <div class="zaks"><p3>14.20</p3>
-					<p>Роспись</p></div>
-					<div class="furhet"><p3>15.30</p3><p>Фуршет</p></div>
-					<div class="Banket"><p3>16.30</p3><p>Банкет</p></div>
-				</div>
-				<div class="desc-right">
-					<h3>This drives us</h3>
-					<p>
-						Burning Man Project will bring experiences to people in grand, awe-inspiring and joyful ways that lift the human spirit, address social problems, and inspire a sense of culture, community, and civic engagement. Burning Man provides infrastructural tools and frameworks to support local communities in applying the Ten Principles through six interconnected program areas, including Arts, Civic Involvement, Culture, Education, Philosophical Center, and Social Enterprise.
-					</p>
-				</div>			
-			</div>-->
-			<div class="gallery">
-				<img src="img/img1.jpg" alt="Event photo 1">
-				<!--<img src="img/img2.jpg" alt="Event photo 2">-->
-			</div>
+    // --- 1. ЗАГРУЗКА КАРТЫ ---
+    document.getElementById('file-input').addEventListener('change', function(e) {
+        let file = e.target.files[0];
+        if (!file) return;
+        let reader = new FileReader();
+        reader.onload = function(event) {
+            mapImage.src = event.target.result;
+            mapImage.style.display = "block";
+            mapImage.onload = function() {
+                // Подгоняем размер холста под реальное отображение картинки
+                resizeCanvas();
+                appState = "WAIT_NORTH";
+                statusText.innerHTML = "<b>Шаг 2:</b> Поверните телефон верхней частью экрана на реальный СЕВЕР карты и нажмите «Задать Север».";
+            }
+        };
+        reader.readAsDataURL(file);
+    });
 
-						<div class="podsk">
-								<p6> Подсказки</p6>
-								<p>Мы догадываемся, что после получения приглашения у вас может появиться ряд вопросов</p>
-						</div>
-					<div class="icons">
-						<div class="icon_surp">
-							<img src="img/surp.png" alt="" class="icon_surp1">
-						</div>
-							<div class="surp">
-								<p4> Сюрпризы</p4>
-								<p>Возьмите с собой отличное настроение! Приветствуются ваши поздравления, активное участие в интерактивах, творческие выступления! Вы можете обратиться к нашему организатору для воплощения своих идей!<br>(все идеи после 01.04.25)</p>
-								<a href="tel:+79637400074" class="tel_ved">
-									Юрий +7 921 626-09-98
-								</a>
-							</div>
-							</div>
-					<div class="icons">
-						<div class="icon_surp">
-							<img src="img/what.png" alt="" class="icon_surp1">
-						</div>
-							<div class="surp">
-								<p4> Что дарить?</p4>
-								<p>В качестве подарка будем рады вкладу в бюджет нашей семьи. Он точно поможет воплотить нашу мечту в реальность!</p>
-							</div>
-							</div>
+    window.addEventListener('resize', resizeCanvas);
+    function resizeCanvas() {
+        if (mapImage.style.display !== "none") {
+            canvas.width = mapImage.clientWidth;
+            canvas.height = mapImage.clientHeight;
+            canvas.style.left = mapImage.offsetLeft + "px";
+            canvas.style.top = mapImage.offsetTop + "px";
+            redrawTrack();
+        }
+    }
 
-								<div class="mesto">
-						<p>Место проведения:</p><br>
-						<a href="https://yandex.ru/maps/18/petrozavodsk/house/lososinskoye_shosse_17/Z00YdQRlTkwEQFhrfXt2c3VjYQ==/?ll=34.331308%2C61.772189&z=15"> г. Петрозаводск, Лососинское шоссе 17</a>
-					</p>
-							</div>
-		</div>
-	</div>
-	</section>
-	<footer id="footer" class="footer">
-	</footer>
+    // --- 2. КАЛИБРОВКА СЕВЕРА ---
+    document.getElementById('btn-north').addEventListener('click', function() {
+        if (appState !== "WAIT_NORTH") return;
+        
+        // Запрашиваем данные компаса (работает в современных смартфонах)
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            // Для iOS
+            DeviceOrientationEvent.requestPermission().then(response => {
+                if (response == 'granted') window.addEventListener('deviceorientation', handleOrientation, true);
+            });
+        } else {
+            // Для Android / Desktop
+            window.addEventListener('deviceorientation', handleOrientation, true);
+        }
 
-	<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-	<script src="js/main.js"></script>
+        // В лесу снимем реальный азимут, сейчас для теста запишем текущий или 0
+        statusText.innerHTML = "<b>Шаг 3:</b> Масштаб. Нажмите кнопку «Задать масштаб», затем кликните ДВЕ точки на карте, между которыми в реальности 100 метров.";
+        document.getElementById('btn-scale').disabled = false;
+        appState = "WAIT_SCALE";
+    });
 
+    let currentHeading = 0;
+    function handleOrientation(event) {
+        // Получаем азимут (в зависимости от ОС)
+        let heading = event.webkitCompassHeading || (360 - event.alpha);
+        if (heading) {
+            currentHeading = heading;
+            if (appState === "WAIT_NORTH") {
+                northAzimuth = heading; // Запоминаем куда смотрел телефон
+            }
+            // Вращаем маркер-стрелочку по компасу относительно сохраненного севера карты
+            let relativeAngle = currentHeading - northAzimuth;
+            marker.style.transform = `translate(-50%, -50%) rotate(${relativeAngle}deg)`;
+        }
+    }
+
+    // --- 3. РАСЧЕТ МАСШТАБА И СТАРТА ПО КЛИКУ ---
+    document.getElementById('btn-scale').addEventListener('click', () => {
+        statusText.innerHTML = "Кликните первую точку отрезка (0 метров)";
+        scaleFirstPoint = null;
+    });
+
+    document.getElementById('btn-start').addEventListener('click', () => {
+        statusText.innerHTML = "Кликните на карте точку, где вы сейчас стоически находитесь.";
+        appState = "WAIT_START";
+    });
+
+    mapImage.addEventListener('click', function(e) {
+        // Получаем клик в локальных координатах отображаемой картинки
+        let rect = mapImage.getBoundingClientRect();
+        let clickX = e.clientX - rect.left;
+        let clickY = e.clientY - rect.top;
+
+        if (appState === "WAIT_SCALE") {
+            if (!scaleFirstPoint) {
+                scaleFirstPoint = {x: clickX, y: clickY};
+                statusText.innerHTML = "Отлично. Теперь кликните вторую точку (конец 100-метровки).";
+            } else {
+                let dx = clickX - scaleFirstPoint.x;
+                let dy = clickY - scaleFirstPoint.y;
+                let pixelDist = Math.sqrt(dx*dx + dy*dy);
+                scalePixelsPerMeter = pixelDist / 100; // Нашли сколько пикселей в 1 метре
+                
+                statusText.innerHTML = `Масштаб задан: ${scalePixelsPerMeter.toFixed(2)} пкс/метр. <br><b>Шаг 4:</b> Нажмите «Я тут (Старт)».`;
+                document.getElementById('btn-start').disabled = false;
+                appState = "INIT";
+            }
+        } 
+        else if (appState === "WAIT_START") {
+            startPixels = {x: clickX, y: clickY};
+            currentPixels = {x: clickX, y: clickY};
+            
+            // Фиксируем физическую точку старта по GPS
+            navigator.geolocation.getCurrentPosition((position) => {
+                startGPS = {
+                    lat: position.coords.latitude,
+                    lon: position.coords.longitude
+                };
+                lastGPS = startGPS;
+                
+                // Включаем маркер и постоянное слежение
+                marker.style.left = (mapImage.offsetLeft + currentPixels.x) + "px";
+                marker.style.top = (mapImage.offsetTop + currentPixels.y) + "px";
+                marker.style.display = "block";
+                
+                trackLog.push({x: currentPixels.x, y: currentPixels.y});
+                
+                // Запускаем постоянный GPS трекер
+                startGPSTracking();
+                
+                appState = "READY";
+            }, (err) => {
+                alert("Включите GPS геолокацию на телефоне!");
+            }, { enableHighAccuracy: true });
+        }
+    });
+
+    // --- 4. GPS НАВИГАЦИЯ В ДВИЖЕНИИ ---
+    function startGPSTracking() {
+        statusText.innerHTML = "🌲 Навигация активна! Двигайтесь по маршруту. Дистанция: 0м";
+        
+        navigator.geolocation.watchPosition((position) => {
+            let lat = position.coords.latitude;
+            let lon = position.coords.longitude;
+            
+            // Расчет смещения от СТАРТА в реальных метрах (упрощенная проекция для малых расстояний)
+            let dLat = lat - startGPS.lat;
+            let dLon = lon - startGPS.lon;
+            
+            // Перевод разницы градусов в метры
+            let metersNorth = dLat * 111132;
+            let metersEast = dLon * (111132 * Math.cos(startGPS.lat * Math.PI / 180));
+            
+            // Считаем общую пройденную дистанцию для счетчика
+            if (lastGPS) {
+                let stepDist = getDistanceMetres(lastGPS.lat, lastGPS.lon, lat, lon);
+                if (stepDist > 2) { // Фильтр погрешности GPS (не считать шаги, если стоим)
+                    totalDistance += stepDist;
+                    lastGPS = {lat, lon};
+                }
+            }
+
+            // Магия: Поворачиваем метры GPS под азимут нашей карты (наш сохраненный север)
+            let angleRad = (northAzimuth * Math.PI) / 180;
+            // Матрица поворота координат
+            let rotatedEast = metersEast * Math.cos(angleRad) - metersNorth * Math.sin(angleRad);
+            let rotatedNorth = metersEast * Math.sin(angleRad) + metersNorth * Math.cos(angleRad);
+
+            // Переводим метры в пиксели холста
+            let pixelDeltaX = rotatedEast * scalePixelsPerMeter;
+            let pixelDeltaY = -rotatedNorth * scalePixelsPerMeter; // В вебе Y идет сверху вниз
+
+            // Новая позиция на рисунке карты
+            currentPixels.x = startPixels.x + pixelDeltaX;
+            currentPixels.y = startPixels.y + pixelDeltaY;
+
+            // Двигаем HTML маркер по экрану
+            marker.style.left = (mapImage.offsetLeft + currentPixels.x) + "px";
+            marker.style.top = (mapImage.offsetTop + currentPixels.y) + "px";
+
+            // Записываем точку в трек и перерисовываем линию пути
+            trackLog.push({x: currentPixels.x, y: currentPixels.y});
+            redrawTrack();
+
+            statusText.innerHTML = `🌲 Дистанция: ${totalDistance.toFixed(0)} м. <br> GPS точн: ±${position.coords.accuracy.toFixed(0)}м.`;
+
+        }, (err) => { console.error(err); }, {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 5000
+        });
+    }
+
+    // Отрисовка трека на Canvas
+    function redrawTrack() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (trackLog.length < 2) return;
+        
+        ctx.beginPath();
+        ctx.strokeStyle = "#2563eb"; // Синяя линия пути
+        ctx.lineWidth = 4;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        
+        ctx.moveTo(trackLog[0].x, trackLog[0].y);
+        for(let i = 1; i < trackLog.length; i++) {
+            ctx.lineTo(trackLog[i].x, trackLog[i].y);
+        }
+        ctx.stroke();
+    }
+
+    // Функция вычисления расстояния между двумя GPS точками (Формула Гаверсинуса)
+    function getDistanceMetres(lat1, lon1, lat2, lon2) {
+        let R = 6371000; // Радиус Земли в метрах
+        let dLat = (lat2 - lat1) * Math.PI / 180;
+        let dLon = (lon2 - lon1) * Math.PI / 180;
+        let a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+        let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+</script>
 </body>
 </html>
