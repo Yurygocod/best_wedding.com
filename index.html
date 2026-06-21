@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Навигатор Ориентировщика</title>
+    <title>Навигатор Ориентировщика PRO</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -12,8 +12,9 @@
             color: #fff;
             overflow: hidden;
             height: 100vh;
+            touch-action: none; 
         }
-        /* Панель управления сверху */
+        
         #controls {
             position: absolute;
             top: 0; left: 0; width: 100%;
@@ -41,43 +42,58 @@
         }
         button:disabled { background: #4b5563; cursor: not-allowed; }
         input[type="file"] { display: none; }
-        
-        /* Информационная панель */
-        #status {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 5px;
-            border-radius: 3px;
-            line-height: 1.4;
+        #status { background: rgba(255, 255, 255, 0.1); padding: 5px; border-radius: 3px; line-height: 1.4; }
+
+        #zoom-controls {
+            position: absolute;
+            bottom: 20px; right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+        .zoom-btn {
+            width: 50px; height: 50px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #2563eb;
+            color: white;
+            border-radius: 50%;
+            font-size: 24px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }
 
-        /* Контейнер рабочей области (карты) */
-        #map-container {
-            position: relative;
+        #viewport {
             width: 100vw;
             height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            cursor: crosshair;
+            overflow: hidden;
+            position: relative;
         }
+
+        #map-wrapper {
+            position: absolute;
+            transform-origin: 0 0;
+            cursor: grab;
+        }
+        #map-wrapper:active { cursor: grabbing; }
+
         #map-img {
-            max-width: 100%;
-            max-height: 100%;
             display: block;
             user-select: none;
             -webkit-user-drag: none;
         }
-        /* Слой для рисования трека */
         #track-canvas {
             position: absolute;
             top: 0; left: 0;
-            pointer-events: none; /* Пропускает клики на картинку */
+            pointer-events: none;
         }
-        /* Маркер игрока */
         #user-marker {
             position: absolute;
-            width: 20px;
-            height: 20px;
+            width: 20px; height: 20px;
             background: #ef4444;
             border: 3px solid white;
             border-radius: 50%;
@@ -86,7 +102,6 @@
             z-index: 5;
             box-shadow: 0 0 10px rgba(0,0,0,0.5);
         }
-        /* Стрелка направления внутри маркера */
         #user-marker::after {
             content: '';
             position: absolute;
@@ -104,43 +119,130 @@
         <div class="row">
             <label class="btn" for="file-input">📸 Сфоткать карту</label>
             <input type="file" id="file-input" accept="image/*">
-            <button id="btn-north">🧭 Задать Север</button>
+            <button id="btn-north" disabled>🧭 Указать Север на карте</button>
         </div>
         <div class="row">
-            <button id="btn-scale" disabled>📏 Задать масштаб (100м)</button>
+            <button id="btn-scale" disabled>📏 Задать масштаб</button>
             <button id="btn-start" disabled>🚩 Я тут (Старт)</button>
         </div>
         <div id="status">Шаг 1: Загрузите фото вашей карты.</div>
     </div>
 
-    <div id="map-container">
-        <img id="map-img" src="" alt="" style="display: none;">
-        <canvas id="track-canvas"></canvas>
-        <div id="user-marker"></div>
+    <div id="zoom-controls">
+        <div class="zoom-btn" id="zoom-in">+</div>
+        <div class="zoom-btn" id="zoom-out">−</div>
+    </div>
+
+    <div id="viewport">
+        <div id="map-wrapper">
+            <img id="map-img" src="" alt="" style="display: none;">
+            <canvas id="track-canvas"></canvas>
+            <div id="user-marker"></div>
+        </div>
     </div>
 
 <script>
-    // Основные переменные состояния
     let mapImage = document.getElementById('map-img');
+    let mapWrapper = document.getElementById('map-wrapper');
     let canvas = document.getElementById('track-canvas');
     let ctx = canvas.getContext('2d');
     let marker = document.getElementById('user-marker');
     let statusText = document.getElementById('status');
 
-    let appState = "INIT"; // Режимы: INIT, WAIT_NORTH, WAIT_SCALE, WAIT_START, READY
+    let appState = "INIT"; 
+    let northAzimuth = 0;      
+    let scalePixelsPerMeter = 0; 
     
-    // Переменные калибровки
-    let northAzimuth = 0;      // Физический азимут севера карты
-    let scalePixelsPerMeter = 0; // Коэффициент масштаба
-    let scaleFirstPoint = null;  // Первая точка для замера масштаба
-    
-    let startGPS = null;       // {lat, lon} точки старта
-    let startPixels = null;    // {x, y} точки старта на картинке
+    // Переменные для калибровки Севера (Линейка Севера)
+    let northFirstPoint = null;
+    let northCurrentPos = null;
+
+    // Переменные интерактивной линейки масштаба
+    let scaleFirstPoint = null;  
+    let currentMousePos = null; 
+
+    let startGPS = null;       
+    let startPixels = null;    
     let currentPixels = {x: 0, y: 0};
     
-    let trackLog = [];         // Массив пройденных пиксельных точек [{x, y}]
-    let totalDistance = 0;     // В метрах
+    let trackLog = [];         
+    let totalDistance = 0;     
     let lastGPS = null;
+
+    let scale = 1;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let startX, startY;
+
+    function updateTransform() {
+        mapWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    }
+
+    document.getElementById('zoom-in').addEventListener('click', () => { scale *= 1.2; updateTransform(); });
+    document.getElementById('zoom-out').addEventListener('click', () => { scale /= 1.2; if(scale < 0.2) scale = 0.2; updateTransform(); });
+
+    let viewport = document.getElementById('viewport');
+    viewport.addEventListener('pointerdown', (e) => {
+        if (appState === "WAIT_NORTH_LINE" || appState === "WAIT_SCALE" || appState === "WAIT_START") return;
+        isDragging = true;
+        startX = e.clientX - panX;
+        startY = e.clientY - panY;
+        mapWrapper.style.transition = 'none';
+    });
+
+    viewport.addEventListener('pointermove', (e) => {
+        if (isDragging) {
+            panX = e.clientX - startX;
+            panY = e.clientY - startY;
+            updateTransform();
+        }
+        
+        let rect = mapImage.getBoundingClientRect();
+        
+        // Отслеживание для линейки СЕВЕРА
+        if (appState === "WAIT_NORTH_LINE" && northFirstPoint) {
+            northCurrentPos = {
+                x: (e.clientX - rect.left) / scale,
+                y: (e.clientY - rect.top) / scale
+            };
+            redrawAll();
+        }
+
+        // Отслеживание для линейки МАСШТАБА
+        if (appState === "WAIT_SCALE" && scaleFirstPoint) {
+            currentMousePos = {
+                x: (e.clientX - rect.left) / scale,
+                y: (e.clientY - rect.top) / scale
+            };
+            redrawAll(); 
+        }
+    });
+
+    viewport.addEventListener('pointerup', () => isDragging = false);
+    viewport.addEventListener('pointercancel', () => isDragging = false);
+
+    // Включаем слежение за компасом сразу
+    function initCompass() {
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            DeviceOrientationEvent.requestPermission().then(response => {
+                if (response == 'granted') window.addEventListener('deviceorientation', handleOrientation, true);
+            });
+        } else {
+            window.addEventListener('deviceorientation', handleOrientation, true);
+        }
+    }
+
+    let currentHeading = 0;
+    function handleOrientation(event) {
+        let heading = event.webkitCompassHeading || (360 - event.alpha);
+        if (heading) {
+            currentHeading = heading;
+            // Поворот стрелки направления пользователя
+            let relativeAngle = currentHeading - northAzimuth;
+            marker.style.transform = `translate(-50%, -50%) rotate(${relativeAngle}deg)`;
+        }
+    }
 
     // --- 1. ЗАГРУЗКА КАРТЫ ---
     document.getElementById('file-input').addEventListener('change', function(e) {
@@ -151,90 +253,120 @@
             mapImage.src = event.target.result;
             mapImage.style.display = "block";
             mapImage.onload = function() {
-                // Подгоняем размер холста под реальное отображение картинки
+                panX = (window.innerWidth - mapImage.naturalWidth) / 2;
+                panY = (window.innerHeight - mapImage.naturalHeight) / 2;
+                if(panX < 0) panX = 0;
+                if(panY < 0) panY = 0;
+                scale = 1;
+                updateTransform();
+                
                 resizeCanvas();
-                appState = "WAIT_NORTH";
-                statusText.innerHTML = "<b>Шаг 2:</b> Поверните телефон верхней частью экрана на реальный СЕВЕР карты и нажмите «Задать Север».";
+                initCompass(); // Запрашиваем доступ к компасу
+
+                appState = "INIT";
+                statusText.innerHTML = "<b>Шаг 2:</b> Нажмите кнопку «Указать Север на карте» и проведите линию снизу вверх вдоль меридиана карты.";
+                document.getElementById('btn-north').disabled = false;
             }
         };
         reader.readAsDataURL(file);
     });
 
-    window.addEventListener('resize', resizeCanvas);
     function resizeCanvas() {
         if (mapImage.style.display !== "none") {
-            canvas.width = mapImage.clientWidth;
-            canvas.height = mapImage.clientHeight;
-            canvas.style.left = mapImage.offsetLeft + "px";
-            canvas.style.top = mapImage.offsetTop + "px";
-            redrawTrack();
+            canvas.width = mapImage.naturalWidth;
+            canvas.height = mapImage.naturalHeight;
+            canvas.style.left = "0px";
+            canvas.style.top = "0px";
+            redrawAll();
         }
     }
 
-    // --- 2. КАЛИБРОВКА СЕВЕРА ---
+    // --- 2. УЛУЧШЕННАЯ КАЛИБРОВКА СЕВЕРА (МЕТОД ДВУХ ТОЧЕК) ---
     document.getElementById('btn-north').addEventListener('click', function() {
-        if (appState !== "WAIT_NORTH") return;
-        
-        // Запрашиваем данные компаса (работает в современных смартфонах)
-        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-            // Для iOS
-            DeviceOrientationEvent.requestPermission().then(response => {
-                if (response == 'granted') window.addEventListener('deviceorientation', handleOrientation, true);
-            });
-        } else {
-            // Для Android / Desktop
-            window.addEventListener('deviceorientation', handleOrientation, true);
-        }
-
-        // В лесу снимем реальный азимут, сейчас для теста запишем текущий или 0
-        statusText.innerHTML = "<b>Шаг 3:</b> Масштаб. Нажмите кнопку «Задать масштаб», затем кликните ДВЕ точки на карте, между которыми в реальности 100 метров.";
-        document.getElementById('btn-scale').disabled = false;
-        appState = "WAIT_SCALE";
+        statusText.innerHTML = "🧭 <b>Калибровка Севера:</b> Кликните на ЮЖНУЮ (нижнюю) точку меридиана на карте.";
+        northFirstPoint = null;
+        northCurrentPos = null;
+        appState = "WAIT_NORTH_LINE";
+        redrawAll();
     });
 
-    let currentHeading = 0;
-    function handleOrientation(event) {
-        // Получаем азимут (в зависимости от ОС)
-        let heading = event.webkitCompassHeading || (360 - event.alpha);
-        if (heading) {
-            currentHeading = heading;
-            if (appState === "WAIT_NORTH") {
-                northAzimuth = heading; // Запоминаем куда смотрел телефон
-            }
-            // Вращаем маркер-стрелочку по компасу относительно сохраненного севера карты
-            let relativeAngle = currentHeading - northAzimuth;
-            marker.style.transform = `translate(-50%, -50%) rotate(${relativeAngle}deg)`;
-        }
-    }
-
-    // --- 3. РАСЧЕТ МАСШТАБА И СТАРТА ПО КЛИКУ ---
+    // --- 3. НАСТРОЙКА МАСШТАБА ---
     document.getElementById('btn-scale').addEventListener('click', () => {
-        statusText.innerHTML = "Кликните первую точку отрезка (0 метров)";
+        statusText.innerHTML = "📐 <b>Режим линейки:</b> Кликните НАЧАЛО отрезка на карте.";
         scaleFirstPoint = null;
+        currentMousePos = null;
+        appState = "WAIT_SCALE";
+        redrawAll();
     });
 
     document.getElementById('btn-start').addEventListener('click', () => {
-        statusText.innerHTML = "Кликните на карте точку, где вы сейчас стоически находитесь.";
+        statusText.innerHTML = "🚩 Кликните на карте точку, где вы сейчас стоите.";
         appState = "WAIT_START";
     });
 
+    // --- ОБРАБОТКА КЛИКОВ ПО КАРТЕ ---
     mapImage.addEventListener('click', function(e) {
-        // Получаем клик в локальных координатах отображаемой картинки
         let rect = mapImage.getBoundingClientRect();
-        let clickX = e.clientX - rect.left;
-        let clickY = e.clientY - rect.top;
+        let clickX = (e.clientX - rect.left) / scale;
+        let clickY = (e.clientY - rect.top) / scale;
 
-        if (appState === "WAIT_SCALE") {
+        // Логика калибровки севера стрелкой
+        if (appState === "WAIT_NORTH_LINE") {
+            if (!northFirstPoint) {
+                northFirstPoint = { x: clickX, y: clickY };
+                northCurrentPos = { x: clickX, y: clickY };
+                statusText.innerHTML = "🧭 Теперь кликните на СЕВЕРНУЮ (верхнюю) точку этого же меридиана.";
+                redrawAll();
+            } else {
+                // Вычисляем угол наклона линии на картинке в радианах и градусах
+                let dx = clickX - northFirstPoint.x;
+                let dy = clickY - northFirstPoint.y; 
+                
+                // В Canvas ось Y перевернута, поэтому -dy
+                let mapAngleGrad = Math.atan2(dx, -dy) * (180 / Math.PI);
+                if (mapAngleGrad < 0) mapAngleGrad += 360;
+
+                // Запоминаем азимут севера карты
+                northAzimuth = mapAngleGrad;
+
+                northFirstPoint = null;
+                northCurrentPos = null;
+                redrawAll();
+
+                statusText.innerHTML = "🧭 Север успешно привязан! <br><b>Шаг 3:</b> Нажмите «Задать масштаб» и проведите контрольную линию.";
+                document.getElementById('btn-scale').disabled = false;
+                appState = "INIT";
+            }
+        }
+        // Логика линейки масштаба
+        else if (appState === "WAIT_SCALE") {
             if (!scaleFirstPoint) {
                 scaleFirstPoint = {x: clickX, y: clickY};
-                statusText.innerHTML = "Отлично. Теперь кликните вторую точку (конец 100-метровки).";
+                currentMousePos = {x: clickX, y: clickY};
+                statusText.innerHTML = "📐 Теперь кликните КОНЕЦ отрезка линейки.";
+                redrawAll();
             } else {
                 let dx = clickX - scaleFirstPoint.x;
                 let dy = clickY - scaleFirstPoint.y;
                 let pixelDist = Math.sqrt(dx*dx + dy*dy);
-                scalePixelsPerMeter = pixelDist / 100; // Нашли сколько пикселей в 1 метре
                 
-                statusText.innerHTML = `Масштаб задан: ${scalePixelsPerMeter.toFixed(2)} пкс/метр. <br><b>Шаг 4:</b> Нажмите «Я тут (Старт)».`;
+                let userMeters = prompt("Сколько МЕТРОВ в этом отрезке на карте?", "100");
+                let meters = parseFloat(userMeters);
+                
+                if (isNaN(meters) || meters <= 0) {
+                    alert("Некорректное расстояние. Попробуйте настроить масштаб заново.");
+                    scaleFirstPoint = null;
+                    currentMousePos = null;
+                    redrawAll();
+                    return;
+                }
+
+                scalePixelsPerMeter = pixelDist / meters; 
+                scaleFirstPoint = null; 
+                currentMousePos = null;
+                redrawAll();
+                
+                statusText.innerHTML = `Масштаб успешно задан: ${scalePixelsPerMeter.toFixed(2)} пкс/м. <br><b>Шаг 4:</b> Нажмите «Я тут (Старт)».`;
                 document.getElementById('btn-start').disabled = false;
                 appState = "INIT";
             }
@@ -243,79 +375,61 @@
             startPixels = {x: clickX, y: clickY};
             currentPixels = {x: clickX, y: clickY};
             
-            // Фиксируем физическую точку старта по GPS
             navigator.geolocation.getCurrentPosition((position) => {
-                startGPS = {
-                    lat: position.coords.latitude,
-                    lon: position.coords.longitude
-                };
+                startGPS = { lat: position.coords.latitude, lon: position.coords.longitude };
                 lastGPS = startGPS;
                 
-                // Включаем маркер и постоянное слежение
-                marker.style.left = (mapImage.offsetLeft + currentPixels.x) + "px";
-                marker.style.top = (mapImage.offsetTop + currentPixels.y) + "px";
+                marker.style.left = currentPixels.x + "px";
+                marker.style.top = currentPixels.y + "px";
                 marker.style.display = "block";
                 
                 trackLog.push({x: currentPixels.x, y: currentPixels.y});
-                
-                // Запускаем постоянный GPS трекер
                 startGPSTracking();
-                
                 appState = "READY";
-            }, (err) => {
-                alert("Включите GPS геолокацию на телефоне!");
-            }, { enableHighAccuracy: true });
+            }, (err) => { alert("Включите GPS!"); }, { enableHighAccuracy: true });
         }
     });
 
-    // --- 4. GPS НАВИГАЦИЯ В ДВИЖЕНИИ ---
+    // --- 4. GPS НАВИГАЦИЯ ---
     function startGPSTracking() {
-        statusText.innerHTML = "🌲 Навигация активна! Двигайтесь по маршруту. Дистанция: 0м";
+        statusText.innerHTML = "🌲 Навигация активна! Дистанция: 0м";
         
         navigator.geolocation.watchPosition((position) => {
             let lat = position.coords.latitude;
             let lon = position.coords.longitude;
             
-            // Расчет смещения от СТАРТА в реальных метрах (упрощенная проекция для малых расстояний)
             let dLat = lat - startGPS.lat;
             let dLon = lon - startGPS.lon;
             
-            // Перевод разницы градусов в метры
             let metersNorth = dLat * 111132;
             let metersEast = dLon * (111132 * Math.cos(startGPS.lat * Math.PI / 180));
             
-            // Считаем общую пройденную дистанцию для счетчика
             if (lastGPS) {
                 let stepDist = getDistanceMetres(lastGPS.lat, lastGPS.lon, lat, lon);
-                if (stepDist > 2) { // Фильтр погрешности GPS (не считать шаги, если стоим)
+                if (stepDist > 2) { 
                     totalDistance += stepDist;
                     lastGPS = {lat, lon};
                 }
             }
 
-            // Магия: Поворачиваем метры GPS под азимут нашей карты (наш сохраненный север)
+            // Корректный поворот координат GPS относительно нарисованного Севера
             let angleRad = (northAzimuth * Math.PI) / 180;
-            // Матрица поворота координат
             let rotatedEast = metersEast * Math.cos(angleRad) - metersNorth * Math.sin(angleRad);
             let rotatedNorth = metersEast * Math.sin(angleRad) + metersNorth * Math.cos(angleRad);
 
-            // Переводим метры в пиксели холста
             let pixelDeltaX = rotatedEast * scalePixelsPerMeter;
-            let pixelDeltaY = -rotatedNorth * scalePixelsPerMeter; // В вебе Y идет сверху вниз
+            let pixelDeltaY = -rotatedNorth * scalePixelsPerMeter; 
 
-            // Новая позиция на рисунке карты
             currentPixels.x = startPixels.x + pixelDeltaX;
             currentPixels.y = startPixels.y + pixelDeltaY;
 
-            // Двигаем HTML маркер по экрану
-            marker.style.left = (mapImage.offsetLeft + currentPixels.x) + "px";
-            marker.style.top = (mapImage.offsetTop + currentPixels.y) + "px";
+            marker.style.left = currentPixels.x + "px";
+            marker.style.top = currentPixels.y + "px";
 
-            // Записываем точку в трек и перерисовываем линию пути
             trackLog.push({x: currentPixels.x, y: currentPixels.y});
-            redrawTrack();
+            redrawAll();
 
-            statusText.innerHTML = `🌲 Дистанция: ${totalDistance.toFixed(0)} м. <br> GPS точн: ±${position.coords.accuracy.toFixed(0)}м.`;
+            statusText.innerHTML = `🌲 Дистанция: ${totalDistance.toFixed(0)} м. <br> GPS точность: ±${position.coords.accuracy.toFixed(0)}м.`;
 
         }, (err) => { console.error(err); }, {
             enableHighAccuracy: true,
@@ -324,27 +438,77 @@
         });
     }
 
-    // Отрисовка трека на Canvas
-    function redrawTrack() {
+    // --- ОБЩАЯ ОТРИСОВКА (ТРЕК + ЛИНЕЙКИ) ---
+    function redrawAll() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (trackLog.length < 2) return;
         
-        ctx.beginPath();
-        ctx.strokeStyle = "#2563eb"; // Синяя линия пути
-        ctx.lineWidth = 4;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        
-        ctx.moveTo(trackLog[0].x, trackLog[0].y);
-        for(let i = 1; i < trackLog.length; i++) {
-            ctx.lineTo(trackLog[i].x, trackLog[i].y);
+        // 1. Рисуем пройденный трек движения
+        if (trackLog.length >= 2) {
+            ctx.beginPath();
+            ctx.strokeStyle = "#2563eb"; 
+            ctx.lineWidth = 6;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.moveTo(trackLog[0].x, trackLog[0].y);
+            for(let i = 1; i < trackLog.length; i++) {
+                ctx.lineTo(trackLog[i].x, trackLog[i].y);
+            }
+            ctx.stroke();
         }
-        ctx.stroke();
+
+        // 2. Живая стрелка СЕВЕРА (Сиреневый цвет)
+        if (appState === "WAIT_NORTH_LINE" && northFirstPoint && northCurrentPos) {
+            ctx.beginPath();
+            ctx.strokeStyle = "#a855f7"; 
+            ctx.lineWidth = 5;
+            ctx.moveTo(northFirstPoint.x, northFirstPoint.y);
+            ctx.lineTo(northCurrentPos.x, northCurrentPos.y);
+            ctx.stroke();
+
+            // Наконечник стрелки, указывающий на Север карты
+            let angle = Math.atan2(northCurrentPos.y - northFirstPoint.y, northCurrentPos.x - northFirstPoint.x);
+            ctx.beginPath();
+            ctx.fillStyle = "#a855f7";
+            ctx.moveTo(northCurrentPos.x, northCurrentPos.y);
+            ctx.lineTo(northCurrentPos.x - 15 * Math.cos(angle - Math.PI / 6), northCurrentPos.y - 15 * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(northCurrentPos.x - 15 * Math.cos(angle + Math.PI / 6), northCurrentPos.y - 15 * Math.sin(angle + Math.PI / 6));
+            ctx.fill();
+
+            // Точка основания (Юг)
+            ctx.beginPath();
+            ctx.fillStyle = "#a855f7";
+            ctx.arc(northFirstPoint.x, northFirstPoint.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 3. Живая линейка МАСШТАБА (Зеленый цвет)
+        if (appState === "WAIT_SCALE" && scaleFirstPoint && currentMousePos) {
+            ctx.beginPath();
+            ctx.strokeStyle = "#10b981"; 
+            ctx.lineWidth = 5;
+            ctx.setLineDash([10, 10]);
+            ctx.moveTo(scaleFirstPoint.x, scaleFirstPoint.y);
+            ctx.lineTo(currentMousePos.x, currentMousePos.y);
+            ctx.stroke();
+            ctx.setLineDash([]); 
+
+            ctx.beginPath();
+            ctx.fillStyle = "#10b981";
+            ctx.arc(scaleFirstPoint.x, scaleFirstPoint.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.fillStyle = "#10b981";
+            ctx.arc(currentMousePos.x, currentMousePos.y, 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 
-    // Функция вычисления расстояния между двумя GPS точками (Формула Гаверсинуса)
     function getDistanceMetres(lat1, lon1, lat2, lon2) {
-        let R = 6371000; // Радиус Земли в метрах
+        let R = 6371000; 
         let dLat = (lat2 - lat1) * Math.PI / 180;
         let dLon = (lon2 - lon1) * Math.PI / 180;
         let a = Math.sin(dLat/2) * Math.sin(dLat/2) +
