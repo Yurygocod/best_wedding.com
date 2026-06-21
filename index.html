@@ -230,14 +230,21 @@
     }
 
     let currentHeading = 0;
-    function handleOrientation(event) {
-        let heading = event.webkitCompassHeading || (360 - event.alpha);
-        if (heading) {
-            currentHeading = heading;
-            let relativeAngle = currentHeading - northAzimuth;
-            marker.style.transform = `translate(-50%, -50%) rotate(${relativeAngle}deg)`;
-        }
+function handleOrientation(event) {
+    // Получаем реальный азимут телефона (куда смотрит его верхний торец)
+    let heading = event.webkitCompassHeading || (360 - event.alpha);
+    
+    if (heading !== undefined && heading !== null) {
+        currentHeading = heading;
+        
+        // Угол поворота маркера относительно картинки карты:
+        // Из курса телефона вычитаем азимут севера карты
+        let relativeAngle = currentHeading - northAzimuth;
+        
+        // ВАЖНО: сохраняем translate(-50%, -50%), иначе маркер съедет с координат!
+        marker.style.transform = `translate(-50%, -50%) rotate(${relativeAngle}deg)`;
     }
+}
 
     // --- 1. ЗАГРУЗКА КАРТЫ ---
     document.getElementById('file-input').addEventListener('change', function(e) {
