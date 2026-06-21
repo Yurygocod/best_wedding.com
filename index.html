@@ -103,13 +103,15 @@
             box-shadow: 0 0 10px rgba(0,0,0,0.5);
         }
         #user-marker::after {
-            content: '';
-            position: absolute;
-            top: -12px; left: 4px;
-            width: 0; height: 0;
-            border-left: 3px solid transparent;
-            border-right: 3px solid transparent;
-            border-bottom: 10px solid #ef4444;
+    content: '';
+    position: absolute;
+    top: -12px; 
+    left: 50%; /* Центрируем по горизонтали */
+    transform: translateX(-50%); /* Сдвигаем на половину ширины стрелки */
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 10px solid #ef4444;
         }
     </style>
 </head>
