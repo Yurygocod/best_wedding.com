@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Навигатор Ориентировщика PRO</title>
+    <title>Навигатор Ориентировщика PRO + Zoom</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -52,15 +52,29 @@
             border-left: 4px solid #3b82f6;
         }
 
-        #map-container {
+        /* Контейнер-вьевер, который обрезает карту по экрану */
+        #viewport {
             position: relative;
             width: 100vw;
             height: 100vh;
+            overflow: hidden;
+            background: #1e1e1e;
+        }
+
+        /* Интерактивная рабочая область, которую мы будем зумить и двигать */
+        #pan-zoom-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: 0 0;
+            will-change: transform;
             display: flex;
             justify-content: center;
             align-items: center;
-            background: #1e1e1e;
+            width: 100vw;
+            height: 100vh;
         }
+
         #map-img {
             max-width: 100%;
             max-height: 100%;
@@ -108,13 +122,15 @@
             <button id="btn-scale" disabled>📏 Масштаб (100м)</button>
             <button id="btn-start" disabled>🚩 Старт</button>
         </div>
-        <div id="status"><b>Шаг 1:</b> Загрузите изображение или фотографию карты.</div>
+        <div id="status"><b>Шаг 1:</b> Загрузите изображение карты. Двигать и приближать карту можно в любой момент двумя пальцами.</div>
     </div>
 
-    <div id="map-container">
-        <img id="map-img" src="" alt="" style="display: none;">
-        <canvas id="track-canvas"></canvas>
-        <div id="user-marker"></div>
+    <div id="viewport">
+        <div id="pan-zoom-layer">
+            <img id="map-img" src="" alt="" style="display: none;">
+            <canvas id="track-canvas"></canvas>
+            <div id="user-marker"></div>
+        </div>
     </div>
 
 <script>
@@ -123,29 +139,159 @@
     let ctx = canvas.getContext('2d');
     let marker = document.getElementById('user-marker');
     let statusText = document.getElementById('status');
+    let transformLayer = document.getElementById('pan-zoom-layer');
+    let viewport = document.getElementById('viewport');
 
     let appState = "INIT"; 
     
-    // Все внутренние расчеты ведем в оригинальных (natural) пикселях картинки!
+    // Переменные калибровки и логов
     let northAzimuth = 0;      
     let scaleImgPixelsPerMeter = 0; 
     let scaleFirstPoint = null;  
-    
     let startGPS = null;       
     let startImgPixels = null;    
     let currentImgPixels = {x: 0, y: 0};
-    
-    let trackLogImg = []; // Точки трека в оригинальных пикселях картинки
+    let trackLogImg = []; 
     let totalDistance = 0;      
     let lastGPS = null;
     let currentHeading = 0;
 
-    // ФИЛЬТР ГЕОЛОКАЦИИ (Экспоненциальное сглаживание)
+    // Сглаживание GPS
     let filteredLat = null;
     let filteredLon = null;
-    const FILTER_FACTOR = 0.3; // Чем меньше, тем плавнее трек, но есть задержка (0.3 — оптимум для бега/ходьбы)
+    const FILTER_FACTOR = 0.3;
 
-    // --- 1. ЗАГРУЗКА КАРТЫ ---
+    // Переменные трансформации (Зум и Панорамирование)
+    let zoom = 1;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let startPanX = 0, startPanY = 0;
+    let startTouchX = 0, startTouchY = 0;
+    let startTouchDist = 0;
+
+    // Обновление CSS-трансформации сцены
+    function applyTransform() {
+        transformLayer.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    }
+
+    // --- УПРАВЛЕНИЕ ЗУМОМ И ПЕРЕМЕЩЕНИЕМ ---
+    // Колесо мыши (для ПК)
+    viewport.addEventListener('wheel', (e) => {
+        if (mapImage.style.display === "none") return;
+        e.preventDefault();
+        const zoomFactor = 1.1;
+        const mouseX = e.clientX;
+        const mouseY = e.clientY;
+
+        // Зум относительно курсора мыши
+        const innerX = (mouseX - panX) / zoom;
+        const innerY = (mouseY - panY) / zoom;
+
+        if (e.deltaY < 0) {
+            zoom = Math.min(zoom * zoomFactor, 8);
+        } else {
+            zoom = Math.max(zoom / zoomFactor, 0.5);
+        }
+
+        panX = mouseX - innerX * zoom;
+        panY = mouseY - innerY * zoom;
+        applyTransform();
+    }, { passive: false });
+
+    // Тач-события (для смартфонов: скролл одним пальцем, зум двумя)
+    viewport.addEventListener('touchstart', (e) => {
+        if (mapImage.style.display === "none") return;
+        
+        if (e.touches.length === 1) {
+            // Начало перетаскивания
+            isDragging = true;
+            startTouchX = e.touches[0].clientX;
+            startTouchY = e.touches[0].clientY;
+            startPanX = panX;
+            startPanY = panY;
+        } else if (e.touches.length === 2) {
+            // Начало Pinch-to-zoom
+            isDragging = false;
+            startTouchDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            // Центр между двумя пальцами
+            const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            this.innerTouchX = (centerX - panX) / zoom;
+            this.innerTouchY = (centerY - panY) / zoom;
+            this.startZoom = zoom;
+        }
+    });
+
+    viewport.addEventListener('touchmove', (e) => {
+        if (mapImage.style.display === "none") return;
+        e.preventDefault();
+
+        if (isDragging && e.touches.length === 1) {
+            const dx = e.touches[0].clientX - startTouchX;
+            const dy = e.touches[0].clientY - startTouchY;
+            panX = startPanX + dx;
+            panY = startPanY + dy;
+            applyTransform();
+        } else if (e.touches.length === 2) {
+            const dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+            const factor = dist / startTouchDist;
+            zoom = Math.max(0.5, Math.min(this.startZoom * factor, 8));
+
+            const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+
+            panX = centerX - this.innerTouchX * zoom;
+            panY = centerY - this.innerTouchY * zoom;
+            applyTransform();
+        }
+    }, { passive: false });
+
+    viewport.addEventListener('touchend', (e) => {
+        isDragging = false;
+    });
+
+    // --- РАСЧЕТ КООРДИНАТ С УЧЕТОМ ЗУМА ---
+    function getLayerCoords(clientX, clientY) {
+        // Координаты внутри слоя pan-zoom-layer БЕЗ учета CSS scale/translate
+        let rect = transformLayer.getBoundingClientRect();
+        return {
+            x: (clientX - rect.left) / zoom,
+            y: (clientY - rect.top) / zoom
+        };
+    }
+
+    function screenToImgCoords(layerX, layerY) {
+        let rect = mapImage.getBoundingClientRect();
+        let scaleX = mapImage.naturalWidth / (rect.width / zoom);
+        let scaleY = mapImage.naturalHeight / (rect.height / zoom);
+        
+        let imgLeft = mapImage.offsetLeft;
+        let imgTop = mapImage.offsetTop;
+
+        return {
+            x: (layerX - imgLeft) * scaleX,
+            y: (layerY - imgTop) * scaleY
+        };
+    }
+
+    function imgToLayerCoords(imgX, imgY) {
+        let rect = mapImage.getBoundingClientRect();
+        let scaleX = (rect.width / zoom) / mapImage.naturalWidth;
+        let scaleY = (rect.height / zoom) / mapImage.naturalHeight;
+        return {
+            x: mapImage.offsetLeft + imgX * scaleX,
+            y: mapImage.offsetTop + imgY * scaleY
+        };
+    }
+
+    // --- ЗАГРУЗКА КАРТЫ ---
     document.getElementById('file-input').addEventListener('change', function(e) {
         let file = e.target.files[0];
         if (!file) return;
@@ -154,9 +300,11 @@
             mapImage.src = event.target.result;
             mapImage.style.display = "block";
             mapImage.onload = function() {
+                // Сброс зума при загрузке новой карты
+                zoom = 1; panX = 0; panY = 0; applyTransform();
                 resizeCanvas();
                 appState = "WAIT_NORTH";
-                statusText.innerHTML = "<b>Шаг 2:</b> Направьте верх телефона на реальный СЕВЕР карты и нажмите «Задать Север».";
+                statusText.innerHTML = "<b>Шаг 2:</b> Направьте верх телефона на СЕВЕР карты и нажмите «Задать Север».";
                 document.getElementById('btn-north').disabled = false;
             }
         };
@@ -176,225 +324,6 @@
         }
     }
 
-    // Перевод из координат экрана (размера CSS) в оригинальные пиксели картинки
-    function screenToImgCoords(screenX, screenY) {
-        let rect = mapImage.getBoundingClientRect();
-        let scaleX = mapImage.naturalWidth / rect.width;
-        let scaleY = mapImage.naturalHeight / rect.height;
-        return {
-            x: (screenX - rect.left) * scaleX,
-            y: (screenY - rect.top) * scaleY
-        };
-    }
-
-    // Перевод из оригинальных пикселей в экранные (для отрисовки)
-    function imgToScreenCoords(imgX, imgY) {
-        let rect = mapImage.getBoundingClientRect();
-        let scaleX = rect.width / mapImage.naturalWidth;
-        let scaleY = rect.height / mapImage.naturalHeight;
-        return {
-            x: rect.left + imgX * scaleX,
-            y: rect.top + imgY * scaleY
-        };
-    }
-
-    // --- 2. КОМПАС ---
+    // --- КОМПАС ---
     document.getElementById('btn-north').addEventListener('click', function() {
-        if (appState !== "WAIT_NORTH") return;
-        
-        // Запрос разрешений для iOS
-        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-            DeviceOrientationEvent.requestPermission().then(response => {
-                if (response === 'granted') initCompassListeners();
-            });
-        } else {
-            initCompassListeners();
-        }
-
-        northAzimuth = currentHeading; // Запоминаем текущий азимут как Север карты
-        statusText.innerHTML = "<b>Шаг 3:</b> Нажмите «Масштаб» и кликните ДВЕ точки на карте, между которыми 100 метров.";
-        document.getElementById('btn-scale').disabled = false;
-        appState = "WAIT_SCALE";
-    });
-
-    function initCompassListeners() {
-        if ('ondeviceorientationabsolute' in window) {
-            window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-        } else {
-            window.addEventListener('deviceorientation', handleOrientation, true);
-        }
-    }
-
-    function handleOrientation(event) {
-        // Поддержка iOS (webkitCompassHeading) и Android (alpha при absolute)
-        let heading = event.webkitCompassHeading || (event.absolute ? (360 - event.alpha) : null);
-        if (heading !== null) {
-            currentHeading = heading;
-            let relativeAngle = currentHeading - northAzimuth;
-            marker.style.transform = `translate(-50%, -50%) rotate(${relativeAngle}deg)`;
-        }
-    }
-
-    // --- 3. МАСШТАБ И СТАРТ ---
-    document.getElementById('btn-scale').addEventListener('click', () => {
-        statusText.innerHTML = "Кликните первую точку отрезка (0 метров)";
-        scaleFirstPoint = null;
-        redrawTrack(); // Очистить старые отметки
-    });
-
-    document.getElementById('btn-start').addEventListener('click', () => {
-        statusText.innerHTML = "Кликните на карте точку, где вы сейчас находитесь.";
-        appState = "WAIT_START";
-    });
-
-    mapImage.addEventListener('click', function(e) {
-        let imgPos = screenToImgCoords(e.clientX, e.clientY);
-
-        if (appState === "WAIT_SCALE") {
-            if (!scaleFirstPoint) {
-                scaleFirstPoint = imgPos;
-                statusText.innerHTML = "Теперь кликните вторую точку (конец 100-метровки).";
-                // Рисуем точку начала калибровки
-                drawCalibrationPoint(e.clientX - mapImage.getBoundingClientRect().left, e.clientY - mapImage.getBoundingClientRect().top);
-            } else {
-                let dx = imgPos.x - scaleFirstPoint.x;
-                let dy = imgPos.y - scaleFirstPoint.y;
-                let pixelDist = Math.sqrt(dx*dx + dy*dy);
-                scaleImgPixelsPerMeter = pixelDist / 100;
-                
-                statusText.innerHTML = `Масштаб: ${scaleImgPixelsPerMeter.toFixed(1)} пкс/м. <br><b>Шаг 4:</b> Нажмите «Старт».`;
-                document.getElementById('btn-start').disabled = false;
-                appState = "INIT";
-                redrawTrack();
-            }
-        } 
-        else if (appState === "WAIT_START") {
-            startImgPixels = imgPos;
-            currentImgPixels = { ...imgPos };
-            
-            navigator.geolocation.getCurrentPosition((position) => {
-                filteredLat = position.coords.latitude;
-                filteredLon = position.coords.longitude;
-                startGPS = { lat: filteredLat, lon: filteredLon };
-                lastGPS = { ...startGPS };
-                
-                trackLogImg = [{ ...startImgPixels }];
-                updateMarkerPosition();
-                marker.style.display = "block";
-                
-                startGPSTracking();
-                appState = "READY";
-            }, (err) => {
-                alert("Ошибка GPS! Включите геопозицию высокой точности.");
-            }, { enableHighAccuracy: true });
-        }
-    });
-
-    function drawCalibrationPoint(x, y) {
-        ctx.fillStyle = "#3b82f6";
-        ctx.beginPath();
-        ctx.arc(x, y, 6, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // --- 4. GPS НАВИГАЦИЯ И ФИЛЬТРАЦИЯ ---
-    function startGPSTracking() {
-        statusText.innerHTML = "🌲 Навигация запущена. Дистанция: 0м";
-        
-        navigator.geolocation.watchPosition((position) => {
-            let rawLat = position.coords.latitude;
-            let rawLon = position.coords.longitude;
-            let accuracy = position.coords.accuracy;
-
-            // Игнорируем слишком плохие данные GPS (например, прыжки более 30 метров погрешности в лесу)
-            if (accuracy > 35) return; 
-
-            // Применяем фильтр «Бегущего среднего» для сглаживания шумов GPS
-            filteredLat = filteredLat * (1 - FILTER_FACTOR) + rawLat * FILTER_FACTOR;
-            filteredLon = filteredLon * (1 - FILTER_FACTOR) + rawLon * FILTER_FACTOR;
-            
-            // Расчет смещения от СТАРТА в метрах
-            let dLat = filteredLat - startGPS.lat;
-            let dLon = filteredLon - startGPS.lon;
-            
-            let metersNorth = dLat * 111132;
-            let metersEast = dLon * (111132 * Math.cos(startGPS.lat * Math.PI / 180));
-            
-            // Считаем пройденный путь (по реальным отфильтрованным координатам)
-            if (lastGPS) {
-                let stepDist = getDistanceMetres(lastGPS.lat, lastGPS.lon, filteredLat, filteredLon);
-                if (stepDist > 1.5) { // Фильтр "микрошагов", когда стоишь на месте
-                    totalDistance += stepDist;
-                    lastGPS = { lat: filteredLat, lon: filteredLon };
-                }
-            }
-
-            // Матрица поворота: приводим GPS-координаты к углу наклона карты
-            let angleRad = (northAzimuth * Math.PI) / 180;
-            let rotatedEast = metersEast * Math.cos(angleRad) - metersNorth * Math.sin(angleRad);
-            let rotatedNorth = metersEast * Math.sin(angleRad) + metersNorth * Math.cos(angleRad);
-
-            // Перевод в оригинальные пиксели картинки
-            let pixelDeltaX = rotatedEast * scaleImgPixelsPerMeter;
-            let pixelDeltaY = -rotatedNorth * scaleImgPixelsPerMeter; // Y в вебе идет сверху вниз
-
-            currentImgPixels.x = startImgPixels.x + pixelDeltaX;
-            currentImgPixels.y = startImgPixels.y + pixelDeltaY;
-
-            updateMarkerPosition();
-
-            // Запись в лог и перерисовка
-            trackLogImg.push({ ...currentImgPixels });
-            redrawTrack();
-
-            statusText.innerHTML = `🌲 <b>Дистанция:</b> ${totalDistance.toFixed(0)} м. <br>🎯 <b>Точность GPS:</b> ±${accuracy.toFixed(0)}м.`;
-
-        }, (err) => { console.error(err); }, {
-            enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: 10000
-        });
-    }
-
-    function updateMarkerPosition() {
-        if (!startImgPixels) return;
-        let screenPos = imgToScreenCoords(currentImgPixels.x, currentImgPixels.y);
-        marker.style.left = screenPos.x + "px";
-        marker.style.top = screenPos.y + "px";
-    }
-
-    function redrawTrack() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (trackLogImg.length < 2) return;
-        
-        ctx.beginPath();
-        ctx.strokeStyle = "#3b82f6"; // Плавный синий трек
-        ctx.lineWidth = 4;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        
-        let startScreen = imgToScreenCoords(trackLogImg[0].x, trackLogImg[0].y);
-        let rect = mapImage.getBoundingClientRect();
-        
-        ctx.moveTo(startScreen.x - rect.left, startScreen.y - rect.top);
-        
-        for(let i = 1; i < trackLogImg.length; i++) {
-            let screenPos = imgToScreenCoords(trackLogImg[i].x, trackLogImg[i].y);
-            ctx.lineTo(screenPos.x - rect.left, screenPos.y - rect.top);
-        }
-        ctx.stroke();
-    }
-
-    function getDistanceMetres(lat1, lon1, lat2, lon2) {
-        let R = 6371000; 
-        let dLat = (lat2 - lat1) * Math.PI / 180;
-        let dLon = (lon2 - lon1) * Math.PI / 180;
-        let a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-        let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c;
-    }
-</script>
-</body>
-</html>
+        if (app
